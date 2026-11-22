@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { PRODUCTS, type Product } from '../data/products';
 import { ProductCard } from './ProductCard';
-import { GheeJar3D } from './GheeJar3D';
 import { X, CheckCircle, ShieldCheck, Flame, Droplets, Rotate3d, Image as ImageIcon } from 'lucide-react';
+
+const GheeJar3D = React.lazy(() =>
+  import('./GheeJar3D').then((m) => ({ default: m.GheeJar3D }))
+);
 
 interface ProductSectionProps {
   onAddToCart: (product: Product, size: string, price: number) => void;
@@ -86,7 +89,18 @@ export const ProductSection: React.FC<ProductSectionProps> = ({ onAddToCart }) =
               <div className="relative flex flex-col items-center">
                 <div className="w-full aspect-square rounded-2xl overflow-hidden bg-ivory-100 border border-ghee-gold/30 relative">
                   {modalViewMode === '3d' ? (
-                    <GheeJar3D />
+                    <React.Suspense
+                      fallback={
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-[#FAF7EE]">
+                          <div className="w-8 h-8 border-2 border-ghee-600 border-t-transparent rounded-full animate-spin mb-2" />
+                          <span className="text-[10px] uppercase tracking-widest text-earth-900 font-semibold">
+                            Loading 3D Jar...
+                          </span>
+                        </div>
+                      }
+                    >
+                      <GheeJar3D />
+                    </React.Suspense>
                   ) : (
                     <img
                       src={modalProduct.image}

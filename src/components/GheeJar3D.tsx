@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RotateCcw, Play, Pause, Sparkles, ZoomIn, ZoomOut } from 'lucide-react';
+import { loadGheeJarModel } from '../utils/modelLoader';
 
 export const GheeJar3D: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -134,73 +134,29 @@ export const GheeJar3D: React.FC = () => {
     const particles = new THREE.Points(particleGeo, particleMat);
     scene.add(particles);
 
-    // 5. Load the actual GLB Model with fallback resolution
+    // 5. Load the actual GLB Model using shared cache & Draco optimization
     const jarGroup = new THREE.Group();
     scene.add(jarGroup);
 
-    const loader = new GLTFLoader();
-    const candidatePaths = [
-      '/nv_ghee_jar.glb',
-      '/nv%20ghee%20jar%203d%20model%20.glb',
-      '/nv ghee jar 3d model.glb',
-      '/nv ghee jar 3d model .glb',
-    ];
+    let isCancelled = false;
+    loadGheeJarModel()
+      .then((model) => {
+        if (isCancelled) return;
+        jarGroup.add(model);
+        jarGroup.scale.set(2.2, 2.2, 2.2);
 
-    const tryLoadJar = (idx: number) => {
-      if (idx >= candidatePaths.length) {
+        // Position shadow right under the jar's base
+        shadowMesh.position.y = -0.5 * 2.2 - 0.01;
+        shadowMesh.scale.set(2.2 * 0.95, 2.2 * 0.95, 1);
+
+        renderer.compile(scene, camera);
         setIsLoading(false);
-        return;
-      }
-
-      loader.load(
-        candidatePaths[idx],
-        (gltf) => {
-          const model = gltf.scene;
-
-          model.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(model);
-          const center = box.getCenter(new THREE.Vector3());
-          const size = box.getSize(new THREE.Vector3());
-
-          const naturalHeight = size.y > 0 ? size.y : 1.0;
-          const normFactor = 1.0 / naturalHeight;
-          model.scale.set(normFactor, normFactor, normFactor);
-          model.position.set(-center.x * normFactor, -center.y * normFactor, -center.z * normFactor);
-
-          // Enhance materials
-          model.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const mesh = child as THREE.Mesh;
-              mesh.castShadow = true;
-              mesh.receiveShadow = true;
-
-              if (mesh.material) {
-                const mat = mesh.material as THREE.MeshStandardMaterial;
-                mat.roughness = Math.min(0.55, Math.max(0.2, mat.roughness ?? 0.35));
-                mat.metalness = Math.min(0.3, mat.metalness ?? 0.15);
-                mat.envMapIntensity = 1.35;
-                mat.needsUpdate = true;
-              }
-            }
-          });
-
-          jarGroup.add(model);
-          jarGroup.scale.set(2.2, 2.2, 2.2);
-
-          // Position shadow right under the jar's base
-          shadowMesh.position.y = -0.5 * 2.2 - 0.01;
-          shadowMesh.scale.set(2.2 * 0.95, 2.2 * 0.95, 1);
-
-          setIsLoading(false);
-        },
-        undefined,
-        () => {
-          tryLoadJar(idx + 1);
-        }
-      );
-    };
-
-    tryLoadJar(0);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.warn('[GheeJar3D] Failed to load model via cache:', err);
+        setIsLoading(false);
+      });
 
     // 6. Pointer & Wheel Controls
     const handlePointerDown = (e: PointerEvent) => {
@@ -289,6 +245,7 @@ export const GheeJar3D: React.FC = () => {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      isCancelled = true;
       cancelAnimationFrame(animId);
       canvas.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointermove', handlePointerMove);

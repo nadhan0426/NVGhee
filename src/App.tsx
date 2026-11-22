@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Lenis from 'lenis';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -10,14 +10,12 @@ import { ProductSection } from './components/ProductSection';
 import { BrandStorySection } from './components/BrandStorySection';
 import { Footer } from './components/Footer';
 import { CartDrawer, type CartItem } from './components/CartDrawer';
-import { LoadingScreen } from './components/LoadingScreen';
 import type { Product } from './data/products';
 import { Check } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
 export function App() {
-  const [isLoading, setIsLoading] = useState(true);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -51,14 +49,12 @@ export function App() {
     };
   }, []);
 
-  // When loading completes, refresh ScrollTrigger geometry
-  useEffect(() => {
-    if (!isLoading) {
-      setTimeout(() => {
-        ScrollTrigger.refresh();
-      }, 100);
-    }
-  }, [isLoading]);
+  // When 3D model loads and settles, refresh ScrollTrigger geometry
+  const handleModelLoaded = useCallback(() => {
+    setTimeout(() => {
+      ScrollTrigger.refresh();
+    }, 150);
+  }, []);
 
   // Add product to cart handler
   const handleAddToCart = (product: Product, size: string, price: number) => {
@@ -114,16 +110,11 @@ export function App() {
         </div>
       )}
 
-      {/* Artisanal Preloader / Loading Screen */}
-      {isLoading && (
-        <LoadingScreen onComplete={() => setIsLoading(false)} />
-      )}
-
       {/* Header & Sticky Navigation */}
       <Navbar cartCount={totalCartCount} onOpenCart={() => setIsCartOpen(true)} />
 
       {/* SECTIONS 1, 2, 3: Unified Immersive 3D Experience (Hero Center -> Right Story 1 -> Left Story 2) */}
-      <GheeExperience3D onModelLoaded={() => {}} />
+      <GheeExperience3D onModelLoaded={handleModelLoaded} />
 
       {/* SECTION 4A: Product Benefits & Living Nutrition */}
       <ProductBenefitsSection />

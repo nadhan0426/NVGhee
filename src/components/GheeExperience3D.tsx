@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Sparkles, ShieldCheck, Flame, Droplets, Award, Compass } from 'lucide-react';
+import { loadGheeJarModel, clearModelCache } from '../utils/modelLoader';
+import { ThreeModelLoader } from './ThreeModelLoader';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -22,8 +23,11 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
   const storyPanelRightRef = useRef<HTMLDivElement>(null);
   const transitionOverlayRef = useRef<HTMLDivElement>(null);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoaderVisible, setIsLoaderVisible] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStage, setLoadingStage] = useState<'downloading' | 'decoding' | 'ready'>('downloading');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   // Store 3D model transforms to coordinate between GSAP and Three.js render loop
   const animStateRef = useRef({
@@ -117,10 +121,11 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
     }
 
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const isMobileDevice = responsiveConfigRef.current.isMobile;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileDevice ? 1.5 : 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = !isMobileDevice;
     renderer.shadowMap.type = THREE.PCFShadowMap;
 
     // 2. High-End Cinematic Dark Studio Reflection Environment (Procedural PMREM)
@@ -472,112 +477,65 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
       }
     }, container);
 
-    // 8. ASYNCHRONOUS GLB MODEL LOADING WITH MULTI-PATH FALLBACK
-    const loader = new GLTFLoader();
-    const candidatePaths = [
-      '/nv_ghee_jar.glb',
-      '/nv%20ghee%20jar%203d%20model%20.glb',
-      '/nv ghee jar 3d model.glb',
-      '/nv ghee jar 3d model .glb',
-    ];
+    // 8. ASYNCHRONOUS GLB MODEL LOADING WITH DRACO & CACHING
+    let isCancelled = false;
 
-    const tryLoad = (pathIndex: number) => {
-      if (pathIndex >= candidatePaths.length) {
-        console.error('[GheeExperience3D] All candidate paths failed to load!');
-        setLoadError('Failed to load 3D GLB model.');
-        setIsLoading(false);
-        return;
-      }
+    setLoadingProgress(0);
+    setLoadingStage('downloading');
+    setLoadError(null);
 
-      const currentPath = candidatePaths[pathIndex];
-      console.log(`[GheeExperience3D] Attempting to load GLB from: ${currentPath}`);
-      loader.load(
-        currentPath,
-        (gltf) => {
-          console.log(`[GheeExperience3D] Successfully loaded GLB from: ${currentPath}`);
-          const model = gltf.scene;
+    loadGheeJarModel((prog) => {
+      if (isCancelled) return;
+      setLoadingProgress(prog.percentage);
+      setLoadingStage(prog.stage);
+    })
+      .then((model) => {
+        if (isCancelled) return;
 
-          // Compute world matrix to obtain accurate bounding dimensions
-          model.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(model);
-          const center = box.getCenter(new THREE.Vector3());
-          const size = box.getSize(new THREE.Vector3());
-          console.log('[GheeExperience3D] GLB model dimensions:', { size, center });
+        // Add model to container
+        jarGroup.add(model);
 
-          // Standardize model height to 1.0 unit
-          const naturalHeight = size.y > 0 ? size.y : 1.0;
-          const normFactor = 1.0 / naturalHeight;
-          model.scale.set(normFactor, normFactor, normFactor);
+        // Pre-compile shaders so rendering starts smoothly with zero hitch
+        renderer.compile(scene, camera);
 
-          // Center model at local origin (0, 0, 0)
-          model.position.set(
-            -center.x * normFactor,
-            -center.y * normFactor,
-            -center.z * normFactor
-          );
+        setLoadingProgress(100);
+        setLoadingStage('ready');
 
-          // Enhance materials for realistic reflections & shadows while preserving authentic textures
-          model.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const mesh = child as THREE.Mesh;
-              mesh.castShadow = true;
-              mesh.receiveShadow = true;
-
-              if (mesh.material) {
-                const mat = mesh.material as THREE.MeshStandardMaterial;
-                mat.roughness = Math.min(0.55, Math.max(0.2, mat.roughness ?? 0.35));
-                mat.metalness = Math.min(0.3, mat.metalness ?? 0.15);
-                mat.envMapIntensity = 1.35;
-                mat.needsUpdate = true;
-              }
-            }
-          });
-
-          // Add to jarGroup
-          jarGroup.add(model);
-
-          setIsLoading(false);
-          setLoadError(null);
-          if (onModelLoadedRef.current) onModelLoadedRef.current();
-
-          // Smooth entrance reveal: gently scales in and settles squarely facing the camera (rotY: 0)
-          const initialScale = responsiveConfigRef.current.baseScale;
-          gsap.fromTo(
-            animStateRef.current,
-            { scale: initialScale * 0.45, rotY: -0.35, posY: -0.4 },
-            {
-              scale: initialScale,
-              rotY: 0,
-              posY: 0,
-              duration: 1.6,
-              ease: 'power3.out',
-              delay: 0.05,
-            }
-          );
-
-          // Ground shadow entrance
-          gsap.fromTo(
-            shadowMat,
-            { opacity: 0 },
-            { opacity: 0.42, duration: 1.8, ease: 'power2.out', delay: 0.1 }
-          );
-        },
-        (progress) => {
-          if (progress.total) {
-            const pct = Math.round((progress.loaded / progress.total) * 100);
-            if (pct % 25 === 0) {
-              console.log(`[GheeExperience3D] Loading progress: ${pct}%`);
-            }
+        // Smooth entrance reveal: gently scales in and settles squarely facing the camera (rotY: 0)
+        const initialScale = responsiveConfigRef.current.baseScale;
+        gsap.fromTo(
+          animStateRef.current,
+          { scale: initialScale * 0.7, rotY: -0.25, posY: -0.2 },
+          {
+            scale: initialScale,
+            rotY: 0,
+            posY: 0,
+            duration: 1.2,
+            ease: 'power2.out',
+            delay: 0.05,
           }
-        },
-        (err) => {
-          console.warn(`[GheeExperience3D] Failed to load ${currentPath}, attempting fallback...`, err);
-          tryLoad(pathIndex + 1);
-        }
-      );
-    };
+        );
 
-    tryLoad(0);
+        // Ground shadow entrance
+        gsap.fromTo(
+          shadowMat,
+          { opacity: 0 },
+          { opacity: 0.42, duration: 1.4, ease: 'power2.out', delay: 0.1 }
+        );
+
+        // Fade out preloader smoothly once initial render is ready
+        setTimeout(() => {
+          if (!isCancelled) {
+            setIsLoaderVisible(false);
+            if (onModelLoadedRef.current) onModelLoadedRef.current();
+          }
+        }, 350);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.error('[GheeExperience3D] Failed to load 3D model:', err);
+        setLoadError('Failed to initialize 3D model. Please check network connection.');
+      });
 
     // 9. Interactive Mouse Parallax
     const handlePointerMove = (e: PointerEvent) => {
@@ -593,12 +551,24 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
     };
     window.addEventListener('pointermove', handlePointerMove);
 
-    // 10. Render Animation Loop
+    // 10. Pause rendering when outside viewport to optimize GPU & battery
+    let isIntersecting = true;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isIntersecting = entry.isIntersecting;
+      },
+      { threshold: 0.02 }
+    );
+    observer.observe(container);
+
+    // 11. Render Animation Loop
     let animId: number;
     const clock = new THREE.Clock();
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      if (!isIntersecting) return;
+
       const elapsed = clock.getElapsedTime();
       const state = animStateRef.current;
 
@@ -650,7 +620,7 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
 
     animate();
 
-    // 11. Resize Handler
+    // 12. Resize Handler
     const handleResize = () => {
       if (!container || !renderer) return;
       checkViewport();
@@ -665,7 +635,9 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
 
     // Cleanup
     return () => {
+      isCancelled = true;
       cancelAnimationFrame(animId);
+      observer.disconnect();
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('resize', handleResize);
 
@@ -678,7 +650,16 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
       particleGeo.dispose();
       pTexture.dispose();
     };
-  }, [checkViewport]);
+  }, [checkViewport, retryKey]);
+
+  const handleRetry = useCallback(() => {
+    clearModelCache();
+    setLoadError(null);
+    setIsLoaderVisible(true);
+    setLoadingProgress(0);
+    setLoadingStage('downloading');
+    setRetryKey((k) => k + 1);
+  }, []);
 
   return (
     <section
@@ -728,28 +709,14 @@ export const GheeExperience3D: React.FC<GheeExperience3DProps> = ({ onModelLoade
         className="absolute inset-0 w-full h-full object-cover z-10 block pointer-events-none"
       />
 
-      {/* Subtle loader indicator while GLB loads */}
-      {isLoading && !loadError && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-full border-2 border-[#D9AE45] border-t-transparent animate-spin" />
-          <span className="text-[11px] font-semibold tracking-widest uppercase text-[#F8F0DF]/80">
-            Initializing 3D Environment...
-          </span>
-        </div>
-      )}
-
-      {/* Error Fallback Banner */}
-      {loadError && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center p-6 bg-[#14251B]/95">
-          <div className="max-w-md p-8 rounded-3xl bg-[#1A2E22]/90 border border-[#D9AE45]/40 text-center shadow-2xl">
-            <h3 className="text-lg font-serif font-bold text-[#F8F0DF] mb-2">3D Viewport Notice</h3>
-            <p className="text-sm text-[#F8F0DF]/80 mb-4">{loadError}</p>
-            <p className="text-xs text-[#F8F0DF]/60">
-              Please ensure WebGL acceleration is enabled in your browser settings.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Premium Dark Green & Gold Centered Circular Loader */}
+      <ThreeModelLoader
+        progress={loadingProgress}
+        stage={loadingStage}
+        error={loadError}
+        onRetry={handleRetry}
+        isVisible={isLoaderVisible}
+      />
 
       {/* -------------------------------------------------------------
           LAYER 2: SECTION 1 — IMMERSIVE HERO OVERLAYS (CENTERED & UNBLOCKED)
