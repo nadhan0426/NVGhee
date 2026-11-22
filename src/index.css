@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: initial;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    background-color: #FDFCF7;
+  }
+  
+  body {
+    background-color: #FDFCF7;
+    color: #1C1814;
+    overflow-x: hidden;
+  }
+
+  /* Lenis recommended css */
+  html.lenis, html.lenis body {
+    height: auto;
+  }
+
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+
+  .lenis.lenis-scrolling iframe {
+    pointer-events: none;
+  }
+}
+
+/* Custom delicate luxury scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FAF7EE;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #DECFA9;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C59A3F;
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(253, 252, 247, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(222, 207, 169, 0.35);
+}
+
+.glass-gold {
+  background: linear-gradient(135deg, rgba(254, 249, 195, 0.45) 0%, rgba(253, 224, 71, 0.15) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(197, 154, 63, 0.3);
+}
+
+.text-gold-gradient {
+  background: linear-gradient(135deg, #A16207 0%, #C59A3F 50%, #E5A93C 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bg-radial-glow {
+  background: radial-gradient(circle at 50% 50%, rgba(250, 204, 21, 0.15) 0%, rgba(253, 252, 247, 0) 70%);
+}
+
+/* Floating animation */
+@keyframes subtle-float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+.animate-subtle-float {
+  animation: subtle-float 6s ease-in-out infinite;
+}
